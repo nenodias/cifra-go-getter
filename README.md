@@ -1,5 +1,5 @@
 # cifra-go-getter
-Projeto em go para baixar cifras
+Projeto em go para visualizar cifras
 
 Nesse exemplo o programa irá acessar a url https://www.cifraclub.com.br/queen/ buscando todas as músicas para violão/guitarra iterar as musicas e verificar todas as cifras de todas as versões.
 
