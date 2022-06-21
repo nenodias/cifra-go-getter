@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anaskhan96/soup"
+	"github.com/nenodias/cifra-go-getter/db"
 )
 
 var baseUrl string = "https://www.cifraclub.com.br"
@@ -14,7 +16,18 @@ type SongListItem struct {
 }
 
 type SongItem struct {
-	Nome, Artista, Tom, Afinacao, Capo, Cifra, Versao string
+	Id       uint   `gorm:"column:id;primarykey"`
+	Nome     string `gorm:"column:nome;type:varchar(255);not null" json:"nome"`
+	Artista  string `gorm:"column:artista;type:varchar(255);not null" json:"artista"`
+	Tom      string `gorm:"column:tom;type:varchar(5)" json:"tom"`
+	Afinacao string `gorm:"column:afinacao;type:varchar(50)" json:"afinacao"`
+	Capo     string `gorm:"column:capo;type:varchar(50)" json:"capo"`
+	Cifra    string `gorm:"column:cifra;type:text" json:"cifra"`
+	Versao   string `gorm:"column:versao;type:varchar(255);not null" json:"versao"`
+}
+
+func (SongItem) TableName() string {
+	return "musica"
 }
 
 type SongVersion struct {
@@ -22,14 +35,20 @@ type SongVersion struct {
 }
 
 func main() {
-	artist := "/queen"
-	for _, song := range OpenSongList(artist) {
-		for _, version := range GetSongVersions(song.Link) {
-			fmt.Println(version.Nome)
-			fmt.Println(version.Versao)
-			chords, err := OpenSong(song.Link)
-			if err == nil {
-				fmt.Println(chords.Cifra)
+	db.Init()
+	artists := []string{
+		"/supercombo",
+	}
+	for _, artist := range artists {
+		time.Sleep(10 * time.Second)
+		for _, song := range OpenSongList(artist) {
+			for _, version := range GetSongVersions(song.Link) {
+				fmt.Println(version.Nome, version.Artista, version.Versao)
+				chords, err := OpenSong(version.Link)
+				if err == nil {
+					tx := db.DB.Save(&chords)
+					tx.Commit()
+				}
 			}
 		}
 	}
@@ -84,14 +103,26 @@ func OpenSong(songLink string) (SongItem, error) {
 		tomSpan := cifraDiv.Find("span", "id", "cifra_tom")
 		tom := tomSpan.Find("a")
 		afinacao := cifraDiv.Find("span", "id", "cifra_afi")
+		afinacaoLink := afinacao.Find("a")
 		capo := cifraDiv.Find("span", "id", "cifra_capo")
+		capoLink := capo.Find("a")
 		cifra := cifraDiv.Find("pre")
+
+		afinacaoTxt := afinacao.Text()
+		if afinacaoLink.Pointer != nil {
+			afinacaoTxt += " " + afinacaoLink.Text()
+		}
+		capoTxt := capo.Text()
+		if capoLink.Pointer != nil {
+			capoTxt += " " + capoLink.Text()
+		}
+
 		return SongItem{
 			Nome:     strings.TrimSpace(name),
 			Artista:  strings.TrimSpace(artist),
 			Tom:      strings.TrimSpace(tom.Text()),
-			Afinacao: strings.TrimSpace(afinacao.Text()),
-			Capo:     strings.TrimSpace(capo.Text()),
+			Afinacao: strings.TrimSpace(afinacaoTxt),
+			Capo:     strings.TrimSpace(capoTxt),
 			Cifra:    cifra.HTML(),
 			Versao:   strings.TrimSpace(version),
 		}, nil
@@ -108,21 +139,38 @@ func OpenSongList(artist string) []SongListItem {
 	}
 	doc := soup.HTMLParse(resp)
 	ul := doc.Find("ul", "id", "js-a-songs")
-	songs := ul.FindAll("li")
+	if ul.Pointer != nil {
+		songs := ul.FindAll("li")
+		response = DealWithSongList(songs)
+	} else {
+		ol := doc.Find("ol", "id", "js-a-t")
+		songs := ol.FindAll("li")
+		response = DealWithSongList(songs)
+	}
+	return response
+}
+
+func DealWithSongList(songs []soup.Root) []SongListItem {
+	response := []SongListItem{}
 	for _, songLi := range songs {
 		a := songLi.Find("a")
 		songSpan := songLi.Find("span")
-		guitar := songSpan.FindAll("a")[0]
-		guitarAttributes := guitar.Attrs()
-		hasGuitar := guitarAttributes["data-ajax"]
-		if hasGuitar != "false" {
-			attributes := a.Attrs()
-			title := attributes["title"]
-			songLink := attributes["href"]
-			response = append(response, SongListItem{
-				Titulo: strings.TrimSpace(title),
-				Link:   songLink,
-			})
+		if songSpan.Pointer != nil {
+			guitarLink := songSpan.FindAll("a")
+			if len(guitarLink) > 0 {
+				guitar := guitarLink[0]
+				guitarAttributes := guitar.Attrs()
+				hasGuitar := guitarAttributes["data-ajax"]
+				if hasGuitar != "false" {
+					attributes := a.Attrs()
+					title := attributes["title"]
+					songLink := attributes["href"]
+					response = append(response, SongListItem{
+						Titulo: strings.TrimSpace(title),
+						Link:   songLink,
+					})
+				}
+			}
 		}
 	}
 	return response
