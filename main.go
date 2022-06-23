@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/anaskhan96/soup"
+	"github.com/nenodias/cifra-go-getter/dados"
 	"github.com/nenodias/cifra-go-getter/db"
 )
 
@@ -36,9 +37,7 @@ type SongVersion struct {
 
 func main() {
 	db.Init()
-	artists := []string{
-		"/supercombo",
-	}
+	artists := dados.GetDados()
 	for _, artist := range artists {
 		time.Sleep(10 * time.Second)
 		for _, song := range OpenSongList(artist) {
@@ -60,22 +59,42 @@ func GetSongVersions(songLink string) []SongVersion {
 	if err == nil {
 		songDoc := soup.HTMLParse(songResp)
 		songVersionsDiv := songDoc.Find("div", "class", "list-versions")
-		songVersions := songVersionsDiv.FindAll("a")
-		for _, version := range songVersions {
+		if songVersionsDiv.Pointer != nil {
+			songVersions := songVersionsDiv.FindAll("a")
+			for _, version := range songVersions {
+				names, _ := GetNameAndArtist(songDoc)
+				name := names[0]
+				artist := names[1]
+				versionAttr := version.Attrs()
+				infos := version.FindAll("span")
+				link := versionAttr["href"]
+				versionName := infos[0].Text()
+				dificuldade := infos[1].Text()
+				response = append(response, SongVersion{
+					Nome:        strings.TrimSpace(name),
+					Artista:     strings.TrimSpace(artist),
+					Versao:      strings.TrimSpace(versionName),
+					Dificuldade: strings.TrimSpace(dificuldade),
+					Link:        link,
+				})
+			}
+		} else {
+			version := songDoc.Find("a", "class", "js-modal-trigger")
 			names, _ := GetNameAndArtist(songDoc)
 			name := names[0]
 			artist := names[1]
-			versionAttr := version.Attrs()
 			infos := version.FindAll("span")
-			link := versionAttr["href"]
 			versionName := infos[0].Text()
-			dificuldade := infos[1].Text()
+			var dificuldade string
+			if len(infos) > 1 {
+				dificuldade = infos[1].Text()
+			}
 			response = append(response, SongVersion{
 				Nome:        strings.TrimSpace(name),
 				Artista:     strings.TrimSpace(artist),
 				Versao:      strings.TrimSpace(versionName),
 				Dificuldade: strings.TrimSpace(dificuldade),
-				Link:        link,
+				Link:        songLink,
 			})
 		}
 	}
@@ -100,6 +119,9 @@ func OpenSong(songLink string) (SongItem, error) {
 		version := songDoc.Find("a", "id", "js-c-versions").Text()
 
 		cifraDiv := songDoc.Find("div", "class", "cifra-mono")
+		if cifraDiv.Pointer == nil {
+			cifraDiv = songDoc.Find("div", "class", "cifra_cnt")
+		}
 		tomSpan := cifraDiv.Find("span", "id", "cifra_tom")
 		tom := tomSpan.Find("a")
 		afinacao := cifraDiv.Find("span", "id", "cifra_afi")
